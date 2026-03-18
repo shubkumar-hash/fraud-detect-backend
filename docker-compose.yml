@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on: [kafka]
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: fingaurd
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: fingaurd
+      POSTGRES_PASSWORD: fingaurd123
+      POSTGRES_DB: fingaurd
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  chromadb:
+    image: chromadb/chroma:0.4.24
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadata:/chroma/chroma
+
+  # ── Microservices ────────────────────────────────────────────────
+  transaction-service:
+    build: ./transaction-service
+    ports:
+      - "8081:8081"
+    depends_on: [kafka, postgres]
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
+      SPRING_DATASOURCE_USERNAME: fingaurd
+      SPRING_DATASOURCE_PASSWORD: fingaurd123
+
+  fraud-service:
+    build: ./fraud-service
+    ports:
+      - "8082:8082"
+    depends_on: [kafka, postgres, redis]
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
+      SPRING_DATASOURCE_USERNAME: fingaurd
+      SPRING_DATASOURCE_PASSWORD: fingaurd123
+      SPRING_REDIS_HOST: redis
+      RISK_SERVICE_URL: http://risk-service:8083
+      RAG_SERVICE_URL: http://rag-service:8084
+
+  risk-service:
+    build: ./risk-service
+    ports:
+      - "8083:8083"
+    depends_on: [postgres, redis]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
+      SPRING_DATASOURCE_USERNAME: fingaurd
+      SPRING_DATASOURCE_PASSWORD: fingaurd123
+      SPRING_REDIS_HOST: redis
+
+  rag-service:
+    build: ./rag-service
+    ports:
+      - "8084:8084"
+    depends_on: [chromadb]
+    env_file:
+      - .env
+    environment:
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "8085:8085"
+    depends_on: [kafka]
+    env_file:
+      - .env
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      ALERT_EMAIL: ${ALERT_EMAIL}
+
+volumes:
+  pgdata:
+  chromadata:
