@@ -18,9 +18,9 @@ public class FraudAlertConsumer {
     private final NotificationService notificationService;
 
     @KafkaListener(
-        topics = "${kafka.topics.fraud-alerts}",
-        groupId = "${spring.kafka.consumer.group-id}",
-        concurrency = "2"
+            topics = "${kafka.topics.fraud-alerts}",
+            groupId = "${spring.kafka.consumer.group-id}",
+            concurrency = "2"
     )
     public void consume(
             @Payload FraudAlertEvent event,

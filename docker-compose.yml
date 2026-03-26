@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ── Infrastructure ──────────────────────────────────────────────
   zookeeper:
@@ -57,11 +55,42 @@ services:
       - chromadata:/chroma/chroma
 
   # ── Microservices ────────────────────────────────────────────────
+  # ── Auth Service ─────────────────────────────────────────────────
+  # JWT_SECRET lives ONLY here and in the api-gateway
+  # No other service has access to the secret
+
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8086:8086"
+    depends_on: [ postgres, redis ]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
+      SPRING_DATASOURCE_USERNAME: fingaurd
+      SPRING_DATASOURCE_PASSWORD: fingaurd123
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-fingaurd-super-secret-key-must-be-at-least-256-bits-long!!}
+
+  # ── API Gateway ──────────────────────────────────────────────────
+  # Single entry point for all client traffic
+  # Validates JWT, injects X-User-Id + X-User-Role, strips Authorization header
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    depends_on: [ auth-service ]
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-fingaurd-super-secret-key-must-be-at-least-256-bits-long!!}
+
   transaction-service:
     build: ./transaction-service
     ports:
       - "8081:8081"
     depends_on: [kafka, postgres]
+    env_file:
+      - .env
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
@@ -73,6 +102,8 @@ services:
     ports:
       - "8082:8082"
     depends_on: [kafka, postgres, redis]
+    env_file:
+      - .env
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
@@ -87,6 +118,8 @@ services:
     ports:
       - "8083:8083"
     depends_on: [postgres, redis]
+    env_file:
+      - .env
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fingaurd
       SPRING_DATASOURCE_USERNAME: fingaurd
